@@ -1,0 +1,26 @@
+{
+  "name": "auth0-lambda-authorizer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild src/authorizer.ts --bundle --platform=node --target=node20 --outfile=dist/authorizer.js",
+    "deploy": "npm run build && npx serverless deploy",
+    "remove": "npx serverless remove"
+    },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-jwt-verify": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.157",
+    "esbuild": "^0.27.0",
+    "serverless": "^4.23.0",
+    "serverless-offline": "^14.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
