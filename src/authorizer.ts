@@ -1,6 +1,23 @@
 // src/authorizer.ts
-import type { APIGatewayRequestAuthorizerEventV2, APIGatewayAuthorizerResultV2 } from 'aws-lambda'
-import { JwtRsaVerifier } from 'aws-jwt-verify'
+import { JwtVerifier } from 'aws-jwt-verify'
+
+// Minimal shape of HTTP API v2 authorizer event
+interface HttpApiAuthorizerEvent {
+    version: string
+    type: "REQUEST"
+    headers: Record<string, string> | null
+    routeArn: string
+    identitySource?: string[]
+    rawPath?: string
+    [key: string]: any // catch-all for unknown fields
+  }
+
+// Simple response expected by API Gateway
+interface SimpleAuthorizerResult {
+    isAuthorized: boolean
+    context?: Record<string, string>
+  }
+
 
 /**
  * Env vars (set in serverless.yml):
@@ -9,15 +26,15 @@ import { JwtRsaVerifier } from 'aws-jwt-verify'
  */
 const issuer = process.env.AUTH0_ISSUER_BASE_URL ?? ''
 const audience = process.env.AUTH0_AUDIENCE ?? ''
+const jwksUri = `${issuer.replace(/\/$/, '')}/.well-known/jwks.json`
 
-// Create a singleton verifier with caching of JWKS
-const verifier = JwtRsaVerifier.create({
-  issuer,
-  audience,
-  jwksUri: `${issuer.replace(/\/$/, '')}/.well-known/jwks.json`,
-  keyUse: 'sig',           // verify signature keys
-  algorithms: ['RS256']
-})
+  // NEW: JwtVerifier (replaces deprecated JwtRsaVerifier)
+  const verifier = JwtVerifier.create({
+    issuer,              // validates "iss"
+    audience,            // validates "aud"
+    jwksUri,             // where to fetch keys from
+  })
+  
 
 function getBearerToken(authHeader?: string): string | null {
   if (!authHeader) return null
@@ -27,8 +44,8 @@ function getBearerToken(authHeader?: string): string | null {
 }
 
 export const handler = async (
-  event: APIGatewayRequestAuthorizerEventV2
-): Promise<APIGatewayAuthorizerResultV2> => {
+  event: HttpApiAuthorizerEvent 
+): Promise<SimpleAuthorizerResult> => {
   try {
     // Allow unauthenticated CORS preflight if you like:
     if (event.routeArn && event.headers?.['content-type'] === 'application/json' && event.requestContext?.http?.method === 'OPTIONS') {
