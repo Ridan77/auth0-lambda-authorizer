@@ -1,0 +1,32 @@
+service: auth0-lambda-authorizer
+
+useDotenv: true
+
+provider:
+  name: aws
+  region: eu-west-1
+  runtime: nodejs20.x
+  memorySize: 128
+  timeout: 6
+  environment:
+    AUTH0_ISSUER_BASE_URL: ${env:AUTH0_ISSUER_BASE_URL}
+    AUTH0_AUDIENCE: ${env:AUTH0_AUDIENCE}
+
+package:
+  individually: true
+
+functions:
+  authorizer:
+    handler: src/authorizer.handler
+    # No events here — it's an authorizer Lambda, invoked by API Gateway
+
+plugins:
+  - serverless-offline
+
+custom:
+  esbuild:
+    bundle: true
+    sourcemap: true
+    target: node20
+    platform: node
+    external: []
