@@ -17,9 +17,7 @@
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.157",
-    "serverless": "^4.23.0",
-    "serverless-esbuild": "^1.55.0",
-    "serverless-offline": "^14.4.0",
+    "esbuild": "^0.27.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

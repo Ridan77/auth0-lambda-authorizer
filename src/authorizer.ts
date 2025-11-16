@@ -1,81 +1,109 @@
 // src/authorizer.ts
-import { JwtVerifier } from 'aws-jwt-verify'
-
-// Minimal shape of HTTP API v2 authorizer event
-interface HttpApiAuthorizerEvent {
-    version: string
-    type: "REQUEST"
-    headers: Record<string, string> | null
-    routeArn: string
-    identitySource?: string[]
-    rawPath?: string
-    [key: string]: any // catch-all for unknown fields
-  }
-
-// Simple response expected by API Gateway
-interface SimpleAuthorizerResult {
-    isAuthorized: boolean
-    context?: Record<string, string>
-  }
-
+import { JwtVerifier } from "aws-jwt-verify"
 
 /**
- * Env vars (set in serverless.yml):
- * - AUTH0_ISSUER_BASE_URL: e.g. https://YOUR_DOMAIN.auth0.com/
- * - AUTH0_AUDIENCE:        e.g. https://api.myapp.com
+ * REST API V1 authorizer event (TOKEN type)
  */
-const issuer = process.env.AUTH0_ISSUER_BASE_URL ?? ''
-const audience = process.env.AUTH0_AUDIENCE ?? ''
-const jwksUri = `${issuer.replace(/\/$/, '')}/.well-known/jwks.json`
+interface RestApiAuthorizerEvent {
+  type: "TOKEN"
+  authorizationToken: string
+  methodArn: string
+  headers?: Record<string, string>
+  [key: string]: any
+}
 
-  // NEW: JwtVerifier (replaces deprecated JwtRsaVerifier)
-  const verifier = JwtVerifier.create({
-    issuer,              // validates "iss"
-    audience,            // validates "aud"
-    jwksUri,             // where to fetch keys from
-  })
-  
+/**
+ * REST API v1 response format
+ */
+interface RestApiAuthorizerResponse {
+  principalId: string
+  policyDocument: {
+    Version: "2012-10-17"
+    Statement: Array<{
+      Action: "execute-api:Invoke"
+      Effect: "Allow" | "Deny"
+      Resource: string
+    }>
+  }
+  context?: Record<string, string>
+}
 
-function getBearerToken(authHeader?: string): string | null {
-  if (!authHeader) return null
-  const [scheme, token] = authHeader.split(' ')
-  if (!scheme || !token || scheme.toLowerCase() !== 'bearer') return null
+/**
+ * Env
+ */
+const issuer = process.env.AUTH0_ISSUER_BASE_URL ?? ""
+const audience = process.env.AUTH0_AUDIENCE ?? ""
+const jwksUri = `${issuer.replace(/\/$/, "")}/.well-known/jwks.json`
+
+// verifier
+const verifier = JwtVerifier.create({
+  issuer,
+  audience,
+  jwksUri,
+})
+
+/**
+ * Extract Bearer token from "Bearer <token>"
+ */
+function getBearerToken(authHeader?: string | null): string | null {
+  if (!authHeader || typeof authHeader !== "string") return null
+  const parts = authHeader.split(" ")
+  if (parts.length !== 2) return null
+
+  const [scheme, token] = parts
+  if (scheme?.toLowerCase() !== "bearer") return null
   return token
 }
 
+/**
+ * REQUIRED: Standard REST API IAM policy generator
+ */
+function generatePolicy(
+  principalId: string,
+  effect: "Allow" | "Deny",
+  resource: string,
+  context: Record<string, string> = {}
+): RestApiAuthorizerResponse {
+  return {
+    principalId,
+    policyDocument: {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "execute-api:Invoke",
+          Effect: effect,
+          Resource: resource,
+        },
+      ],
+    },
+    context,
+  }
+}
+
+/**
+ * MAIN HANDLER — rewritten for REST API V1 authorizers
+ */
 export const handler = async (
-  event: HttpApiAuthorizerEvent 
-): Promise<SimpleAuthorizerResult> => {
+  event: RestApiAuthorizerEvent
+): Promise<RestApiAuthorizerResponse> => {
   try {
-    // Allow unauthenticated CORS preflight if you like:
-    if (event.routeArn && event.headers?.['content-type'] === 'application/json' && event.requestContext?.http?.method === 'OPTIONS') {
-      return { isAuthorized: true, context: { preflight: 'true' } }
-    }
-
-    const token = getBearerToken(event.headers?.authorization || event.headers?.Authorization as string)
+    const token = getBearerToken(event.authorizationToken)
     if (!token) {
-      return { isAuthorized: false }
+      return generatePolicy("unauthorized", "Deny", event.methodArn)
     }
 
-    // Verify JWT (signature + iss + aud + exp)
     const payload = await verifier.verify(token)
 
-    // Optional: you can enforce scopes/claims here
-    // const scope = (payload.scope as string | undefined)?.split(' ') ?? []
-    // if (!scope.includes('read:issues')) return { isAuthorized: false }
-
-    // Attach selected claims to context (strings only)
-    return {
-      isAuthorized: true,
-      context: {
-        sub: String(payload.sub ?? ''),
-        aud: Array.isArray(payload.aud) ? payload.aud.join(',') : String(payload.aud ?? ''),
-        iss: String(payload.iss ?? ''),
-        scope: String((payload as any).scope ?? '')
-      }
-    }
+    return generatePolicy(payload.sub || "client", "Allow", event.methodArn, {
+      sub: String(payload.sub ?? ""),
+      aud: Array.isArray(payload.aud)
+        ? payload.aud.join(",")
+        : String(payload.aud ?? ""),
+      iss: String(payload.iss ?? ""),
+      scope: String((payload as any).scope ?? ""),
+    })
   } catch (err) {
-    // Signature invalid, token expired, wrong iss/aud, etc.
-    return { isAuthorized: false }
+    console.error("Auth error:", err)
+    return generatePolicy("unauthorized", "Deny", event.methodArn)
   }
 }
