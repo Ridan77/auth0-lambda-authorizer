@@ -50,7 +50,7 @@ function getBearerToken(authHeader?: string | null): string | null {
   const parts = authHeader.split(" ")
   if (parts.length !== 2) return null
 
-  const [scheme, token] = parts
+  const [scheme, token] = parts as [string,string]
   if (scheme?.toLowerCase() !== "bearer") return null
   return token
 }
@@ -94,7 +94,7 @@ export const handler = async (
 
     const payload = await verifier.verify(token)
 
-    return generatePolicy(payload.sub || "client", "Allow", event.methodArn, {
+    return generatePolicy(payload.sub || "client", "Allow",event.methodArn.replace(/\/[^/]+$/, "/*"), {
       sub: String(payload.sub ?? ""),
       aud: Array.isArray(payload.aud)
         ? payload.aud.join(",")
